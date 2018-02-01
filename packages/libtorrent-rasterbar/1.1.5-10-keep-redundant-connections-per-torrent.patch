@@ -1,0 +1,260 @@
+diff --git a/bindings/python/src/torrent_handle.cpp b/bindings/python/src/torrent_handle.cpp
+index 4afe79a19..b719846d4 100644
+--- a/bindings/python/src/torrent_handle.cpp
++++ b/bindings/python/src/torrent_handle.cpp
+@@ -511,6 +511,8 @@ void bind_torrent_handle()
+         .def("set_download_limit", _(&torrent_handle::set_download_limit))
+         .def("download_limit", _(&torrent_handle::download_limit))
+         .def("set_sequential_download", _(&torrent_handle::set_sequential_download))
++        .def("set_keep_redundant_connections", _(&torrent_handle::set_keep_redundant_connections))
++        .def("keep_redundant_connections", _(&torrent_handle::keep_redundant_connections))
+ #ifndef TORRENT_NO_DEPRECATE
+         .def("set_peer_upload_limit", &set_peer_upload_limit)
+         .def("set_peer_download_limit", &set_peer_download_limit)
+diff --git a/include/libtorrent/torrent.hpp b/include/libtorrent/torrent.hpp
+index 62ca79cd1..c1e0ae79a 100644
+--- a/include/libtorrent/torrent.hpp
++++ b/include/libtorrent/torrent.hpp
+@@ -429,6 +429,10 @@ namespace libtorrent
+ 		bool is_sequential_download() const
+ 		{ return m_sequential_download || m_auto_sequential; }
+ 
++		void set_keep_redundant_connections(bool keep);
++		bool keep_redundant_connections() const;
++		void maybe_close_redundant_connections();
++
+ 		void queue_up();
+ 		void queue_down();
+ 		void set_queue_position(int p);
+@@ -1529,6 +1533,8 @@ namespace libtorrent
+ 		// for improved disk I/O performance.
+ 		bool m_auto_sequential:1;
+ 
++		bool m_keep_redundant_connections:1;
++
+ 		// this means we haven't verified the file content
+ 		// of the files we're seeding. the m_verified bitfield
+ 		// indicates which pieces have been verified and which
+diff --git a/include/libtorrent/torrent_handle.hpp b/include/libtorrent/torrent_handle.hpp
+index e7a204685..95842594f 100644
+--- a/include/libtorrent/torrent_handle.hpp
++++ b/include/libtorrent/torrent_handle.hpp
+@@ -1186,6 +1186,9 @@ namespace libtorrent
+ 		void connect_peer(tcp::endpoint const& adr, int source = 0
+ 			, int flags = 0x1 + 0x4 + 0x8) const;
+ 
++                void set_keep_redundant_connections(bool keep) const;
++                bool keep_redundant_connections() const;
++
+ 		// ``set_max_uploads()`` sets the maximum number of peers that's unchoked
+ 		// at the same time on this torrent. If you set this to -1, there will be
+ 		// no limit. This defaults to infinite. The primary setting controlling
+diff --git a/src/bt_peer_connection.cpp b/src/bt_peer_connection.cpp
+index bd7d79115..5bb71029a 100644
+--- a/src/bt_peer_connection.cpp
++++ b/src/bt_peer_connection.cpp
+@@ -1906,7 +1906,7 @@ namespace libtorrent
+ 		// if we're finished and this peer is uploading only
+ 		// disconnect it
+ 		if (t->is_finished() && upload_only()
+-			&& m_settings.get_bool(settings_pack::close_redundant_connections)
++			&& !t->keep_redundant_connections()
+ 			&& !t->share_mode())
+ 			disconnect(errors::upload_upload_connection, op_bittorrent);
+ 
+@@ -2006,7 +2006,7 @@ namespace libtorrent
+ 		// if we send upload-only, the other end is very likely to disconnect
+ 		// us, at least if it's a seed. If we don't want to close redundant
+ 		// connections, don't sent upload-only
+-		if (!m_settings.get_bool(settings_pack::close_redundant_connections)) return;
++		if (t->keep_redundant_connections()) return;
+ 
+ #ifndef TORRENT_DISABLE_LOGGING
+ 		peer_log(peer_log_alert::outgoing_message, "UPLOAD_ONLY", "%d"
+diff --git a/src/peer_connection.cpp b/src/peer_connection.cpp
+index 630676ddd..bd88afd6b 100644
+--- a/src/peer_connection.cpp
++++ b/src/peer_connection.cpp
+@@ -2151,11 +2151,12 @@ namespace libtorrent
+ 
+ 		// we cannot disconnect in a constructor
+ 		TORRENT_ASSERT(m_in_constructor == false);
+-		if (!m_settings.get_bool(settings_pack::close_redundant_connections)) return false;
+ 
+ 		boost::shared_ptr<torrent> t = m_torrent.lock();
+ 		if (!t) return false;
+ 
++		if (t->keep_redundant_connections()) return false;
++
+ 		// if we don't have the metadata yet, don't disconnect
+ 		// also, if the peer doesn't have metadata we shouldn't
+ 		// disconnect it, since it may want to request the
+@@ -6692,8 +6693,7 @@ namespace libtorrent
+ 			TORRENT_ASSERT(t->torrent_file().num_pieces() == int(m_have_piece.size()));
+ 
+ 		// in share mode we don't close redundant connections
+-		if (m_settings.get_bool(settings_pack::close_redundant_connections)
+-			&& !t->share_mode())
++		if (!t->keep_redundant_connections() && !t->share_mode())
+ 		{
+ 			bool const ok_to_disconnect =
+ 				can_disconnect(errors::upload_upload_connection)
+@@ -6724,7 +6724,7 @@ namespace libtorrent
+ 		}
+ 
+ 		if (!m_disconnect_started && m_initialized
+-			&& m_settings.get_bool(settings_pack::close_redundant_connections))
++			&& !t->keep_redundant_connections())
+ 		{
+ 			// none of this matters if we're disconnecting anyway
+ 			if (t->is_upload_only() && !m_need_interest_update)
+diff --git a/src/torrent.cpp b/src/torrent.cpp
+index 2319557f7..4489198f5 100644
+--- a/src/torrent.cpp
++++ b/src/torrent.cpp
+@@ -236,6 +236,7 @@ namespace libtorrent
+ 		, m_finished_time(0)
+ 		, m_sequential_download(false)
+ 		, m_auto_sequential(false)
++		, m_keep_redundant_connections(false)
+ 		, m_seed_mode(false)
+ 		, m_super_seeding(false)
+ 		, m_override_resume_data((p.flags & add_torrent_params::flag_override_resume_data) != 0)
+@@ -6975,6 +6976,9 @@ namespace {
+ 			int sequential_ = rd.dict_find_int_value("sequential_download", -1);
+ 			if (sequential_ != -1) set_sequential_download(sequential_ != 0);
+ 
++			int keep_redundant_ = rd.dict_find_int_value("keep_redundant_connections", -1);
++			if (keep_redundant_ != -1) set_keep_redundant_connections(keep_redundant_ != 0);
++
+ 			int paused_ = rd.dict_find_int_value("paused", -1);
+ 			if (paused_ != -1)
+ 			{
+@@ -7255,6 +7259,8 @@ namespace {
+ 
+ 		ret["sequential_download"] = m_sequential_download;
+ 
++		ret["keep_redundant_connections"] = m_keep_redundant_connections;
++
+ 		ret["seed_mode"] = m_seed_mode;
+ 		ret["super_seeding"] = m_super_seeding;
+ 
+@@ -8601,30 +8607,7 @@ namespace {
+ 			m_completed_time = time(0);
+ 
+ 		// disconnect all seeds
+-		if (settings().get_bool(settings_pack::close_redundant_connections))
+-		{
+-			// TODO: 1 should disconnect all peers that have the pieces we have
+-			// not just seeds. It would be pretty expensive to check all pieces
+-			// for all peers though
+-			std::vector<peer_connection*> seeds;
+-			for (peer_iterator i = m_connections.begin();
+-				i != m_connections.end(); ++i)
+-			{
+-				TORRENT_INCREMENT(m_iterating_connections);
+-				peer_connection* p = *i;
+-				TORRENT_ASSERT(p->associated_torrent().lock().get() == this);
+-				if (p->upload_only())
+-				{
+-#ifndef TORRENT_DISABLE_LOGGING
+-					p->peer_log(peer_log_alert::info, "SEED", "CLOSING CONNECTION");
+-#endif
+-					seeds.push_back(p);
+-				}
+-			}
+-			std::for_each(seeds.begin(), seeds.end()
+-				, boost::bind(&peer_connection::disconnect, _1, errors::torrent_finished
+-				, op_bittorrent, 0));
+-		}
++		maybe_close_redundant_connections();
+ 
+ 		if (m_abort) return;
+ 
+@@ -8645,6 +8628,33 @@ namespace {
+ 			m_ses.trigger_auto_manage();
+ 	}
+ 
++	void torrent::maybe_close_redundant_connections()
++	{
++		if (keep_redundant_connections()) return;
++
++		// TODO: 1 should disconnect all peers that have the pieces we have
++		// not just seeds. It would be pretty expensive to check all pieces
++		// for all peers though
++		std::vector<peer_connection*> seeds;
++		for (peer_iterator i = m_connections.begin();
++			i != m_connections.end(); ++i)
++		{
++			TORRENT_INCREMENT(m_iterating_connections);
++			peer_connection* p = *i;
++			TORRENT_ASSERT(p->associated_torrent().lock().get() == this);
++			if (p->upload_only())
++			{
++#ifndef TORRENT_DISABLE_LOGGING
++				p->peer_log(peer_log_alert::info, "SEED", "CLOSING CONNECTION");
++#endif
++				seeds.push_back(p);
++			}
++		}
++		std::for_each(seeds.begin(), seeds.end()
++			, boost::bind(&peer_connection::disconnect, _1, errors::torrent_finished
++			, op_bittorrent, 0));
++	}
++
+ 	// this is called when we were finished, but some files were
+ 	// marked for downloading, and we are no longer finished
+ 	void torrent::resume_download()
+@@ -9328,6 +9338,23 @@ namespace {
+ 		state_updated();
+ 	}
+ 
++	bool torrent::keep_redundant_connections() const
++	{
++		return m_keep_redundant_connections ||
++			!settings().get_bool(settings_pack::close_redundant_connections);
++	}
++
++	void torrent::set_keep_redundant_connections(bool keep)
++	{
++		if (m_keep_redundant_connections == keep) return;
++		m_keep_redundant_connections = keep;
++
++		maybe_close_redundant_connections();
++
++		set_need_save_resume();
++		state_updated();
++	}
++
+ 	void torrent::queue_up()
+ 	{
+ 		// finished torrents may not change their queue positions, as it's set to
+diff --git a/src/torrent_handle.cpp b/src/torrent_handle.cpp
+index 04d20a9be..458079273 100644
+--- a/src/torrent_handle.cpp
++++ b/src/torrent_handle.cpp
+@@ -413,6 +413,11 @@ namespace libtorrent
+ 		TORRENT_ASYNC_CALL1(set_sequential_download, sd);
+ 	}
+ 
++	void torrent_handle::set_keep_redundant_connections(bool keep) const
++	{
++		TORRENT_ASYNC_CALL1(set_keep_redundant_connections, keep);
++	}
++
+ 	void torrent_handle::piece_availability(std::vector<int>& avail) const
+ 	{
+ 		TORRENT_SYNC_CALL1(piece_availability, boost::ref(avail));
+@@ -513,6 +518,12 @@ namespace libtorrent
+ 		return r;
+ 	}
+ 
++	bool torrent_handle::keep_redundant_connections() const
++	{
++		TORRENT_SYNC_CALL_RET(bool, false, keep_redundant_connections);
++		return r;
++	}
++
+ 	bool torrent_handle::is_auto_managed() const
+ 	{
+ 		TORRENT_SYNC_CALL_RET(bool, false, is_auto_managed);

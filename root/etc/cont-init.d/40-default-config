@@ -1,0 +1,5 @@
+#!/usr/bin/with-contenv bash
+
+if [ ! -f /config/core.conf ]; then
+  cp /etc/deluge-default/core.conf /config/core.conf
+fi

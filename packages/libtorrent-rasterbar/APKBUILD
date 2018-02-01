@@ -1,0 +1,66 @@
+# Contributor: August Klein <amatcoder@gmail.com>
+# Maintainer: August Klein <amatcoder@gmail.com>
+pkgname=libtorrent-rasterbar
+#pkgver=1.1.6
+#pkgver=1.1.5
+pkgver=1.1.4
+_pkgver=${pkgver%.0}
+_pkgver=${_pkgver//./_}
+pkgrel=0
+pkgdesc="A feature complete C++ bittorrent implementation"
+url="http://www.rasterbar.com/products/libtorrent"
+arch="all"
+license="BSD"
+depends=""
+depends_dev="boost-dev libressl-dev python2-dev"
+makedepends="$depends_dev linux-headers"
+subpackages="$pkgname-dev"
+#source="https://github.com/arvidn/libtorrent/releases/download/libtorrent-$_pkgver/$pkgname-$pkgver.tar.gz
+#	1.1.6-10-keep-redundant-connections-per-torrent.patch"
+#source="https://github.com/arvidn/libtorrent/releases/download/libtorrent-$_pkgver/$pkgname-$pkgver.tar.gz
+#	1.1.5-10-keep-redundant-connections-per-torrent.patch"
+source="https://github.com/arvidn/libtorrent/releases/download/libtorrent-$_pkgver/$pkgname-$pkgver.tar.gz
+	1.1.4-10-keep-redundant-connections-per-torrent.patch"
+
+builddir="$srcdir"/$pkgname-$pkgver
+
+prepare() {
+	default_prepare
+}
+
+build() {
+	cd "$builddir"
+	./configure \
+		--build=$CBUILD \
+		--host=$CHOST \
+		--prefix=/usr \
+		--enable-python-binding \
+                --enable-logging \
+		--with-boost-system=boost_system || return 1
+	make -j9 || return 1
+}
+package() {
+	cd "$builddir"
+	make DESTDIR="$pkgdir" install || return 1
+}
+
+#md5sums="e95d02e6c942cb050b9cbe6a3a6fc8f6  libtorrent-rasterbar-1.1.6.tar.gz
+#7e17a1851c26a3dda2271a8856e1f586  1.1.6-10-keep-redundant-connections-per-torrent.patch"
+#sha256sums="b7c74d004bd121bd6e9f8975ee1fec3c95c74044c6a6250f6b07f259f55121ef  libtorrent-rasterbar-1.1.6.tar.gz
+#b0397392ea1af3e619e89cc754dfc8b6c020e90308dfa830fc2a2080ebb58845  1.1.6-10-keep-redundant-connections-per-torrent.patch"
+#sha512sums="80e9d460088a1e9ac9b5b1f9a224f07bc1be98d459d50599384d30d43de3f7778eae0f9ced015229c02dc8fe43f962bbaf1dddad070b87a2a67e18eef879eeab  libtorrent-rasterbar-1.1.6.tar.gz
+#d84865e29e5c93eef077f88aa69fdf3720feed436fa8ea35522cc49f2983ab9d2408a838af5c0d68bc5e0726f34167a1bdb94f37a17a35055462e7541e0d2f35  1.1.6-10-keep-redundant-connections-per-torrent.patch"
+
+#md5sums="f0e26796a79c51ae8e49ab652ce00166  libtorrent-rasterbar-1.1.5.tar.gz
+#1d4d26e9e1bac1652a37ef2f51e6b0ed  1.1.5-10-keep-redundant-connections-per-torrent.patch"
+#sha256sums="103134068389155a0f2bccaca72a57765460eb8188495089dcad280dcf426930  libtorrent-rasterbar-1.1.5.tar.gz
+#94de010903f5fe578adf8300d1f563ab549645cee3f9724c8e6afc7e32b35c2a  1.1.5-10-keep-redundant-connections-per-torrent.patch"
+#sha512sums="d0e7fe944c8a396aaf79ce80c7513be07a855bc8a9eee3bca46ed83d5e190aaa5ea4dc9a8a7208e27e18ae8f15733e6e34eabd375f0bde43d4dc4607840782e7  libtorrent-rasterbar-1.1.5.tar.gz
+#e09528e4402e59c9a36f0b80ac076691744610b835ea3d087cae1dc386f84ff745644412c0451de0e3be5974edabb41c40b839d0708914eb5eebee9331e3301f  1.1.5-10-keep-redundant-connections-per-torrent.patch"
+
+md5sums="b0511cebee7b57dde57bfc4ac5f8eefa  libtorrent-rasterbar-1.1.4.tar.gz
+10255d5f6c1bc6d91715c4c6f24430a6  1.1.4-10-keep-redundant-connections-per-torrent.patch"
+sha256sums="ccf42367803a6df7edcf4756d1f7d0a9ce6158ec33b851b3b58fd470ac4eeba6  libtorrent-rasterbar-1.1.4.tar.gz
+ea86e12c9e6b0d397248e0929b30557f5ee1df29ff36cebafed4c972ab449fec  1.1.4-10-keep-redundant-connections-per-torrent.patch"
+sha512sums="50f5dfffbd9e6ba21dbe328be17962f29088a326c2c2bf177e1137ed2900323b9a5bae75ee63635404928452f206c72dd4f9100438a6b802bd36b11430e51bc3  libtorrent-rasterbar-1.1.4.tar.gz
+e6a90d06d1d59ab0343fb42be913f0dde04bf64f43a45a09f927d5667f15fea7d6f07845d0dbe3051ba9eb0a8613c1ec1beffd17e70d513315d661bec3b75514  1.1.4-10-keep-redundant-connections-per-torrent.patch"

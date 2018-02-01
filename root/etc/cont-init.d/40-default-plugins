@@ -1,0 +1,12 @@
+#!/usr/bin/with-contenv bash
+
+if [ ! -d /config/plugins ]; then
+  mkdir /config/plugins
+  chown abc:abc /config/plugins
+fi
+
+if ! ls /config/plugins/YatfsRpc-* > /dev/null 2>&1; then
+  echo "Installing default Yatfs RPC helper plugin."
+  cp /usr/lib/python2.7/site-packages/YatfsRpc-*-py2.7.egg /config/plugins/
+  chown abc:abc /config/plugins/YatfsRpc-*-py2.7.egg
+fi
